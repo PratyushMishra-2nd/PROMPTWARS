@@ -1,8 +1,18 @@
-"""Simple in-memory token bucket per IP. Prevents demo-day cost runaway."""
+"""Token-bucket rate limit per uid (preferred) or client IP.
+
+XFF handling:
+- Only trusted when TRUST_PROXY=1 (set in Cloud Run / behind known LB).
+- When trusted, take the RIGHTMOST entry (last proxy hop) — leftmost is
+  client-controlled and trivially spoofable.
+- When not trusted, ignore XFF entirely and use the socket peer.
+"""
 from __future__ import annotations
+import os
 import time
 from collections import defaultdict
 from fastapi import Request, HTTPException
+
+TRUST_PROXY = os.getenv("TRUST_PROXY", "0") == "1"
 
 
 class TokenBucket:
@@ -23,23 +33,39 @@ class TokenBucket:
         return True
 
 
-# 10 analyses per 10 min per IP; 30 chat msgs per 5 min per IP
 analyze_bucket = TokenBucket(capacity=10, refill_per_sec=10 / 600)
 chat_bucket = TokenBucket(capacity=30, refill_per_sec=30 / 300)
+# tighter per-uid caps once authenticated (Gemini cost guardrail)
+analyze_user_bucket = TokenBucket(capacity=20, refill_per_sec=20 / 600)
+chat_user_bucket = TokenBucket(capacity=60, refill_per_sec=60 / 300)
 
 
 def _client_ip(req: Request) -> str:
-    fwd = req.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    if TRUST_PROXY:
+        fwd = req.headers.get("x-forwarded-for")
+        if fwd:
+            # rightmost = last proxy hop (the one we trust); reject empty
+            parts = [p.strip() for p in fwd.split(",") if p.strip()]
+            if parts:
+                return parts[-1]
     return req.client.host if req.client else "unknown"
 
 
-def limit_analyze(req: Request) -> None:
-    if not analyze_bucket.consume(_client_ip(req)):
+def _key(req: Request, user: dict | None) -> str:
+    if user and user.get("uid"):
+        return f"uid:{user['uid']}"
+    return f"ip:{_client_ip(req)}"
+
+
+def limit_analyze(req: Request, user: dict | None = None) -> None:
+    key = _key(req, user)
+    bucket = analyze_user_bucket if key.startswith("uid:") else analyze_bucket
+    if not bucket.consume(key):
         raise HTTPException(status_code=429, detail="Too many analyses. Wait a minute.")
 
 
-def limit_chat(req: Request) -> None:
-    if not chat_bucket.consume(_client_ip(req)):
+def limit_chat(req: Request, user: dict | None = None) -> None:
+    key = _key(req, user)
+    bucket = chat_user_bucket if key.startswith("uid:") else chat_bucket
+    if not bucket.consume(key):
         raise HTTPException(status_code=429, detail="Too many chat messages. Slow down.")

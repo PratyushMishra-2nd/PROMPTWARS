@@ -1,12 +1,14 @@
 """Gemini client wrappers using the modern `google-genai` SDK.
 
-Supports both AI Studio API keys (`AIza...`) and Vertex Express
-service-account-bound keys (`AQ...`). The SDK auto-routes based on key prefix.
+Routes via Vertex AI when USE_VERTEX=1 (billed against GCP project credits),
+else AI Studio API key (free tier or paid). Vertex bypasses AI Studio free-tier
+daily quota — uses project quotas instead.
 """
 from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Iterator
 
 import numpy as np
@@ -18,15 +20,26 @@ from . import config
 log = logging.getLogger("lexguard.llm")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
+USE_VERTEX = os.getenv("USE_VERTEX", "0") == "1"
+VERTEX_PROJECT = os.getenv("VERTEX_PROJECT") or os.getenv("GCP_PROJECT_ID", "")
+VERTEX_LOCATION = os.getenv("VERTEX_LOCATION", "us-central1")
+
 _client: genai.Client | None = None
 
 
 def _ensure_client() -> genai.Client:
     global _client
     if _client is None:
-        if not config.GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY missing in .env")
-        _client = genai.Client(api_key=config.GEMINI_API_KEY)
+        if USE_VERTEX:
+            if not VERTEX_PROJECT:
+                raise RuntimeError("USE_VERTEX=1 but VERTEX_PROJECT/GCP_PROJECT_ID missing")
+            log.info("genai client: Vertex mode (project=%s, location=%s)", VERTEX_PROJECT, VERTEX_LOCATION)
+            _client = genai.Client(vertexai=True, project=VERTEX_PROJECT, location=VERTEX_LOCATION)
+        else:
+            if not config.GEMINI_API_KEY:
+                raise RuntimeError("GEMINI_API_KEY missing in .env")
+            log.info("genai client: AI Studio mode (key prefix=%s)", config.GEMINI_API_KEY[:4])
+            _client = genai.Client(api_key=config.GEMINI_API_KEY)
     return _client
 
 

@@ -88,6 +88,23 @@ def _dedupe_save(sha: str, perspective: str, contract_type: str | None, aid: str
     store.DEDUPE[key] = aid
 
 
+def _get_owned(analysis_id: str, user: dict | None) -> store.Analysis:
+    """Fetch an analysis enforcing ownership.
+
+    Rules:
+    - 404 if id unknown (don't leak existence).
+    - Anonymous analyses (owner_uid is None) accessible by anyone (legacy demo).
+    - Owned analyses require matching uid; else 404 (avoid existence oracle).
+    """
+    a = store.ANALYSES.get(analysis_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    if a.owner_uid is not None:
+        if not user or user.get("uid") != a.owner_uid:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+    return a
+
+
 @app.post("/api/v1/analyze")
 async def analyze(
     request: Request,
@@ -96,12 +113,13 @@ async def analyze(
     perspective: str = Form("employee"),
     user: dict | None = Depends(fauth.current_user),
 ) -> dict:
-    ratelimit.limit_analyze(request)
+    ratelimit.limit_analyze(request, user)
     store.evict_stale()
     tmp_path, sha = await _save_upload(file)
+    uid = user["uid"] if user else None
 
     dup = _dedupe_hit(sha, perspective, contractType)
-    if dup:
+    if dup and dup.owner_uid == uid:
         tmp_path.unlink(missing_ok=True)
         return {"data": {"analysisId": dup.id, "analysis": dup.model_dump(), "deduped": True}, "error": None}
 
@@ -114,14 +132,17 @@ async def analyze(
         )
     except NotImplementedError as e:
         raise HTTPException(status_code=415, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Pipeline failed: {e}")
+    except Exception:
+        log = __import__("logging").getLogger("lexguard.api")
+        log.exception("pipeline failed")
+        raise HTTPException(status_code=500, detail="Pipeline failed")
     finally:
         try:
             tmp_path.unlink(missing_ok=True)
         except Exception:
             pass
 
+    analysis.owner_uid = uid
     _dedupe_save(sha, perspective, contractType, analysis.id)
     if user:
         fs.save_analysis(user["uid"], analysis.id, analysis.model_dump())
@@ -135,15 +156,16 @@ async def analyze_text(
     user: dict | None = Depends(fauth.current_user),
 ) -> dict:
     """Skip PDF parse — analyze raw pasted text. Demo-friendly."""
-    ratelimit.limit_analyze(request)
+    ratelimit.limit_analyze(request, user)
     store.evict_stale()
     sec.validate_text_length(body.text)
     if len(body.text.strip()) < 100:
         raise HTTPException(status_code=400, detail="Text too short to analyze (min 100 chars)")
 
+    uid = user["uid"] if user else None
     sha = hashlib.sha256(body.text.encode()).hexdigest()
     dup = _dedupe_hit(sha, body.perspective, body.contractType)
-    if dup:
+    if dup and dup.owner_uid == uid:
         return {"data": {"analysisId": dup.id, "analysis": dup.model_dump(), "deduped": True}, "error": None}
 
     try:
@@ -153,8 +175,11 @@ async def analyze_text(
             contract_type_hint=body.contractType,
             perspective=body.perspective,
         )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Pipeline failed: {e}")
+    except Exception:
+        log = __import__("logging").getLogger("lexguard.api")
+        log.exception("pipeline failed")
+        raise HTTPException(status_code=500, detail="Pipeline failed")
+    analysis.owner_uid = uid
     _dedupe_save(sha, body.perspective, body.contractType, analysis.id)
     if user:
         fs.save_analysis(user["uid"], analysis.id, analysis.model_dump())
@@ -192,8 +217,9 @@ async def analyze_stream(
     store.evict_stale()
     tmp_path, _sha = await _save_upload(file)
     fname = file.filename or "upload"
+    uid = user["uid"] if user else None
 
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=64)
     loop = asyncio.get_running_loop()
 
     def on_stage(stage: str, meta: dict) -> None:
@@ -204,11 +230,14 @@ async def analyze_stream(
             analysis = await asyncio.to_thread(
                 pipeline.run_analysis, tmp_path, fname, contractType, perspective, on_stage
             )
+            analysis.owner_uid = uid
             if user:
                 fs.save_analysis(user["uid"], analysis.id, analysis.model_dump())
             await queue.put({"event": "result", "data": _json.dumps({"analysisId": analysis.id})})
-        except Exception as e:
-            await queue.put({"event": "error", "data": _json.dumps({"message": str(e)})})
+        except Exception:
+            log = __import__("logging").getLogger("lexguard.api")
+            log.exception("analyze stream failed")
+            await queue.put({"event": "error", "data": _json.dumps({"message": "Pipeline failed"})})
         finally:
             try:
                 tmp_path.unlink(missing_ok=True)
@@ -229,19 +258,15 @@ async def analyze_stream(
 
 
 @app.get("/api/v1/analyses/{analysis_id}")
-def get_analysis(analysis_id: str) -> dict:
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found (may have been evicted on restart)")
+def get_analysis(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> dict:
+    a = _get_owned(analysis_id, user)
     return {"data": a.model_dump(), "error": None}
 
 
 @app.get("/api/v1/clauses/{analysis_id}/{clause_id}/tts.mp3")
-def clause_tts(analysis_id: str, clause_id: str) -> Response:
+def clause_tts(analysis_id: str, clause_id: str, user: dict | None = Depends(fauth.current_user)) -> Response:
     """Synthesize a clause's plain-language explanation as MP3 (Google Cloud TTS)."""
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    a = _get_owned(analysis_id, user)
     clause = next((c for c in a.clauses if c.id == clause_id), None)
     if not clause:
         raise HTTPException(status_code=404, detail="Clause not found")
@@ -277,10 +302,8 @@ def services_status() -> dict:
 
 
 @app.get("/api/v1/analyses/{analysis_id}/export.json")
-def export_json(analysis_id: str) -> Response:
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+def export_json(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> Response:
+    a = _get_owned(analysis_id, user)
     import json as _json
     body = _json.dumps(a.model_dump(), indent=2).encode()
     return Response(content=body, media_type="application/json",
@@ -288,10 +311,8 @@ def export_json(analysis_id: str) -> Response:
 
 
 @app.get("/api/v1/analyses/{analysis_id}/export.csv")
-def export_csv(analysis_id: str) -> Response:
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+def export_csv(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> Response:
+    a = _get_owned(analysis_id, user)
     import csv, io
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -308,10 +329,8 @@ def export_csv(analysis_id: str) -> Response:
 
 
 @app.get("/api/v1/analyses/{analysis_id}/report.pdf")
-def get_report_pdf(analysis_id: str) -> Response:
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+def get_report_pdf(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> Response:
+    a = _get_owned(analysis_id, user)
     pdf = report_pdf.render_pdf_bytes(a)
     return Response(
         content=pdf,
@@ -321,32 +340,32 @@ def get_report_pdf(analysis_id: str) -> Response:
 
 
 @app.post("/api/v1/analyses/{analysis_id}/chat")
-def chat(analysis_id: str, body: ChatRequest, request: Request) -> dict:
-    ratelimit.limit_chat(request)
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+def chat(analysis_id: str, body: ChatRequest, request: Request,
+         user: dict | None = Depends(fauth.current_user)) -> dict:
+    ratelimit.limit_chat(request, user)
+    a = _get_owned(analysis_id, user)
     try:
         text, citations = flash_chat.answer(analysis_id, body.message, body.history)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Chat failed: {e}")
+    except Exception:
+        log = __import__("logging").getLogger("lexguard.api")
+        log.exception("chat failed")
+        raise HTTPException(status_code=500, detail="Chat failed")
     a.messages.append(store.ChatMessage(role="user", content=body.message))
     a.messages.append(store.ChatMessage(role="assistant", content=text, citations=citations))
     return {"data": {"content": text, "citations": citations}, "error": None}
 
 
 @app.post("/api/v1/analyses/{analysis_id}/chat/stream")
-async def chat_stream(analysis_id: str, body: ChatRequest, request: Request):
+async def chat_stream(analysis_id: str, body: ChatRequest, request: Request,
+                      user: dict | None = Depends(fauth.current_user)):
     """SSE-streamed chat. Tokens stream as Gemini produces them."""
     import json as _json
     import re
     import asyncio
-    ratelimit.limit_chat(request)
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+    ratelimit.limit_chat(request, user)
+    a = _get_owned(analysis_id, user)
 
-    queue: asyncio.Queue = asyncio.Queue()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=256)
     loop = asyncio.get_running_loop()
     full_text_parts: list[str] = []
 
@@ -355,8 +374,10 @@ async def chat_stream(analysis_id: str, body: ChatRequest, request: Request):
             for tok in flash_chat.answer_stream(analysis_id, body.message, body.history):
                 full_text_parts.append(tok)
                 loop.call_soon_threadsafe(queue.put_nowait, {"event": "token", "data": _json.dumps({"t": tok})})
-        except Exception as e:
-            loop.call_soon_threadsafe(queue.put_nowait, {"event": "error", "data": _json.dumps({"message": str(e)})})
+        except Exception:
+            log = __import__("logging").getLogger("lexguard.api")
+            log.exception("chat stream failed")
+            loop.call_soon_threadsafe(queue.put_nowait, {"event": "error", "data": _json.dumps({"message": "Chat failed"})})
         finally:
             full = "".join(full_text_parts)
             # extract clause ids the model cited
@@ -382,10 +403,8 @@ async def chat_stream(analysis_id: str, body: ChatRequest, request: Request):
 
 
 @app.get("/api/v1/analyses/{analysis_id}/benchmark")
-def benchmark(analysis_id: str) -> dict:
-    a = store.ANALYSES.get(analysis_id)
-    if not a:
-        raise HTTPException(status_code=404, detail="Analysis not found")
+def benchmark(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> dict:
+    a = _get_owned(analysis_id, user)
     diffs = []
     for c in a.clauses:
         if c.benchmark_diff:
@@ -403,8 +422,9 @@ def benchmark(analysis_id: str) -> dict:
 
 
 @app.get("/api/v1/analyses")
-def list_analyses() -> dict:
-    """List in-memory analyses (id, filename, type, score, created_at). For version-compare picker."""
+def list_analyses(user: dict | None = Depends(fauth.current_user)) -> dict:
+    """List analyses owned by caller (or anonymous bucket when auth disabled)."""
+    uid = user["uid"] if user else None
     items = sorted(
         [
             {
@@ -418,6 +438,7 @@ def list_analyses() -> dict:
                 "created_at": a.created_at,
             }
             for a in store.ANALYSES.values()
+            if a.owner_uid == uid
         ],
         key=lambda x: x["created_at"],
         reverse=True,
@@ -426,9 +447,11 @@ def list_analyses() -> dict:
 
 
 @app.get("/api/v1/compare")
-def compare_versions(prev: str, new: str) -> dict:
+def compare_versions(prev: str, new: str, user: dict | None = Depends(fauth.current_user)) -> dict:
     if prev == new:
         raise HTTPException(status_code=400, detail="prev and new are the same analysis")
+    _get_owned(prev, user)  # ownership check; raises 404 if not allowed
+    _get_owned(new, user)
     result = cmp.compare(prev, new)
     if result.get("error"):
         raise HTTPException(status_code=404, detail=result["error"])
@@ -436,7 +459,8 @@ def compare_versions(prev: str, new: str) -> dict:
 
 
 @app.delete("/api/v1/analyses/{analysis_id}")
-def delete_analysis(analysis_id: str) -> dict:
+def delete_analysis(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> dict:
+    _get_owned(analysis_id, user)  # 404 if missing or not owner
     store.ANALYSES.pop(analysis_id, None)
     store.EMBEDDINGS.pop(analysis_id, None)
     return {"data": {"deleted": True}, "error": None}

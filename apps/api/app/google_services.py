@@ -43,7 +43,9 @@ def setup_cloud_logging() -> None:
 @lru_cache(maxsize=1)
 def _docai_client():
     from google.cloud import documentai
-    return documentai.DocumentProcessorServiceClient()
+    from google.api_core.client_options import ClientOptions
+    opts = ClientOptions(api_endpoint=f"{DOCAI_LOCATION}-documentai.googleapis.com")
+    return documentai.DocumentProcessorServiceClient(client_options=opts)
 
 
 def docai_extract(file_bytes: bytes, mime_type: str = "application/pdf") -> str | None:

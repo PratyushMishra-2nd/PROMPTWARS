@@ -53,6 +53,7 @@ class Analysis(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
     error_message: str | None = None
+    owner_uid: str | None = None  # None = anonymous (legacy mode); else Firebase uid
     created_at: float = Field(default_factory=time.time)
 
     class Config:

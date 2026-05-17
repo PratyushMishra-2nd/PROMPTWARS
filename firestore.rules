@@ -1,0 +1,26 @@
+rules_version = '2';
+
+// PROMPTWARS / LexGuard Firestore security rules.
+//
+// Backend writes via Firebase Admin SDK (bypasses rules — trusted server).
+// Browser clients should only read their own analyses, and only when signed in.
+//
+// Deploy:  firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Per-user analyses persisted by firestore_store.save_analysis().
+    // Path: users/{uid}/analyses/{analysisId}
+    match /users/{uid}/analyses/{analysisId} {
+      allow read, delete: if request.auth != null && request.auth.uid == uid;
+      // Writes go through the Admin SDK on the backend. Block client writes
+      // so a compromised browser cannot inject fabricated analyses.
+      allow write: if false;
+    }
+
+    // Default-deny everything else.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

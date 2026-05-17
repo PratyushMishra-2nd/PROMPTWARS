@@ -4,7 +4,8 @@
       "Bash(pip --version)",
       "Bash(npm --version)",
       "Bash(pnpm --version)",
-      "Bash(pip install *)"
+      "Bash(pip install *)",
+      "Bash(git remote *)"
     ]
   }
 }
