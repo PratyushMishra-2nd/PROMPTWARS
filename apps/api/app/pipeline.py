@@ -1,14 +1,26 @@
-"""Sync orchestrator. Runs full pipeline per request, yields stage events.
+"""Synchronous contract-analysis orchestrator.
 
-Stages: extracting → scoring → explaining → done
+The pipeline runs each upload through these stages, calling the supplied
+`on_stage(stage_name, meta_dict)` callback at each transition so a
+streaming endpoint can surface progress to the client:
+
+    extracting -> scoring -> explaining -> done
+
+Each step is best-effort: a failure in (e.g.) the adversarial reviewer
+does not abort the whole analysis — it just leaves that section empty
+and logs the error. The mega-extraction step is the only hard requirement;
+if it fails, the analysis is marked `error` and returned early.
 """
 from __future__ import annotations
-from pathlib import Path
-from typing import Iterator, Callable
+import logging
 import uuid
+from pathlib import Path
+from typing import Callable, Iterator
 
-from . import parse, scoring, store, benchmarks, rag
-from .agents import mega_pro, flash_explainer, flash_adversarial
+from . import benchmarks, parse, rag, scoring, store
+from .agents import flash_adversarial, flash_explainer, mega_pro
+
+log = logging.getLogger("lexguard.pipeline")
 
 
 def run_analysis_text(
@@ -34,14 +46,115 @@ def run_analysis_text(
 
 
 def _find_offsets(doc_text: str, quote: str) -> tuple[int, int]:
+    """Locate a quoted clause inside the source document.
+
+    Tries an exact substring match first, then falls back to matching the
+    first 80 characters. Returns ``(0, len(quote))`` if no match — the
+    UI gracefully handles missing offsets.
+    """
     idx = doc_text.find(quote)
     if idx == -1:
-        # fallback: try first 80 chars
         head = quote[:80]
         idx = doc_text.find(head)
         if idx == -1:
             return 0, len(quote)
     return idx, idx + len(quote)
+
+
+def _enrich_with_explainer(clauses: list[store.Clause], perspective: str) -> None:
+    """Run Flash explainer on each Medium+ clause in parallel for ~4x speedup."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    flagged = [cl for cl in clauses if cl.risk_score >= 25]
+    if not flagged:
+        return
+
+    def _job(cl: store.Clause) -> tuple[store.Clause, dict | None]:
+        try:
+            return cl, flash_explainer.explain(
+                cl.type, cl.text, perspective, cl.risk_label, cl.top_reasons
+            )
+        except Exception as exc:
+            log.warning("explainer failed for clause %s: %s", cl.id, exc)
+            return cl, None
+
+    # Cap parallelism — Gemini free tier rate-limits Flash to ~15 RPM
+    max_workers = min(6, len(flagged))
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        for future in as_completed([pool.submit(_job, cl) for cl in flagged]):
+            cl, result = future.result()
+            if result is None:
+                continue
+            cl.plain_explanation = result.get("plain_explanation", cl.plain_explanation)
+            cl.real_world_scenario = result.get("real_world_scenario", "")
+            cl.suggested_redline = result.get("suggested_redline", "")
+
+
+def _apply_adversarial_pass(
+    analysis: store.Analysis, perspective: str, doc_text: str
+) -> None:
+    """Run adversarial reviewer; append synthetic clauses + contradictions."""
+    try:
+        adv = flash_adversarial.review(
+            doc_text,
+            [
+                {"type": c.type, "text": c.text, "risk_label": c.risk_label, "risk_score": c.risk_score}
+                for c in analysis.clauses
+            ],
+            perspective,
+        )
+    except Exception as exc:
+        log.warning("adversarial pass failed: %s", exc)
+        return
+
+    analysis.contradictions = [c for c in (adv.get("contradictions") or []) if c]
+    for j, mr in enumerate(adv.get("missed_risks") or []):
+        sev = float(mr.get("severity", 50))
+        analysis.clauses.append(store.Clause(
+            id=f"adv{j}",
+            type=mr.get("clause_type") or "adversarial_finding",
+            text=mr.get("title", "Missed risk"),
+            normalized_text=mr.get("title", ""),
+            page_number=0,
+            risk_score=round(sev, 1),
+            risk_label=scoring.label_for(sev),
+            risk_components={"llm": sev, "rule": 0.0, "benchmark": 0.0},
+            top_reasons=["Surfaced by adversarial reviewer"],
+            affected_interest="liability",
+            plain_explanation=mr.get("explanation", ""),
+            confidence=0.7,
+        ))
+
+
+def _apply_benchmark_diff(analysis: store.Analysis) -> None:
+    """Augment each clause with a benchmark divergence + refine risk score."""
+    for cl in analysis.clauses:
+        try:
+            diff = benchmarks.best_match(analysis.contract_type, cl.type, cl.text)
+        except Exception as exc:
+            log.debug("benchmark lookup failed for %s: %s", cl.id, exc)
+            continue
+        if not diff:
+            continue
+        cl.benchmark_diff = diff
+        refreshed = scoring.final_score(
+            cl.risk_components.get("llm", cl.risk_score),
+            cl.risk_components.get("rule", 0.0),
+            diff["divergence_score"],
+        )
+        cl.risk_score = refreshed["value"]
+        cl.risk_label = scoring.label_for(cl.risk_score)
+        cl.risk_components = refreshed["components"]
+
+
+def _recompute_document_score(analysis: store.Analysis) -> None:
+    scores = [cl.risk_score for cl in analysis.clauses]
+    doc_score, doc_label = scoring.document_score(scores)
+    analysis.overall_score = doc_score
+    analysis.overall_label = doc_label
+    analysis.top_risk_clause_ids = [
+        cl.id for cl in sorted(analysis.clauses, key=lambda x: x.risk_score, reverse=True)[:5]
+    ]
 
 
 def run_analysis(
@@ -82,6 +195,12 @@ def _run_from_parsed(aid, parsed, chunks_raw, filename, contract_type_hint, pers
     emit("scoring", {"clauseCount": 0})
     mega = mega_pro.run(parsed.text, perspective, contract_type_hint)
 
+    if mega.get("_error"):
+        analysis.error_message = f"Extraction failed: {mega['_error']}. Raw preview: {mega.get('_raw_preview', '')}"
+        analysis.stage = "error"
+        emit("error", {"message": analysis.error_message})
+        return analysis
+
     detected_type = mega.get("contract_type", "unknown")
     if detected_type != "unknown":
         analysis.contract_type = detected_type
@@ -109,6 +228,7 @@ def _run_from_parsed(aid, parsed, chunks_raw, filename, contract_type_hint, pers
             risk_components=score["components"],
             top_reasons=list(c.get("top_reasons", []) or []) + rule_reasons,
             affected_interest=c.get("affected_interest", "financial"),
+            confidence=float(c.get("confidence", 0.8)),
         )
         clauses.append(clause)
 
@@ -124,87 +244,27 @@ def _run_from_parsed(aid, parsed, chunks_raw, filename, contract_type_hint, pers
     ]
 
     emit("explaining", {"clauseCount": len(clauses)})
-    # Seed with mega-call rationale as fallback, then enrich Medium+ via Flash explainer
-    for cl, src in zip(clauses, mega.get("clauses", [])):
+    # Seed with mega-call rationale as fallback before Flash enrichment
+    for cl, src in zip(clauses, mega.get("clauses", []), strict=False):
         cl.plain_explanation = src.get("rationale", "")
 
-    flagged = [cl for cl in clauses if cl.risk_score >= 25]
-    for cl in flagged:
-        try:
-            r = flash_explainer.explain(cl.type, cl.text, perspective, cl.risk_label, cl.top_reasons)
-            cl.plain_explanation = r.get("plain_explanation", cl.plain_explanation)
-            cl.real_world_scenario = r.get("real_world_scenario", "")
-            cl.suggested_redline = r.get("suggested_redline", "")
-        except Exception:
-            # explainer failure is non-fatal — keep fallback rationale
-            pass
+    _enrich_with_explainer(clauses, perspective)
+    _apply_adversarial_pass(analysis, perspective, parsed.text)
+    _recompute_document_score(analysis)
+    _apply_benchmark_diff(analysis)
+    _recompute_document_score(analysis)
 
-    # Adversarial pass — surface missed risks. Append as synthetic clauses.
-    try:
-        adv = flash_adversarial.review(
-            parsed.text,
-            [{"type": c.type, "text": c.text, "risk_label": c.risk_label, "risk_score": c.risk_score} for c in clauses],
-            perspective,
-        )
-        analysis.contradictions = [c for c in (adv.get("contradictions") or []) if c]
-        for j, mr in enumerate(adv.get("missed_risks", []) or []):
-            sev = float(mr.get("severity", 50))
-            label = scoring.label_for(sev)
-            clauses.append(store.Clause(
-                id=f"adv{j}",
-                type=mr.get("clause_type") or "adversarial_finding",
-                text=mr.get("title", "Missed risk"),
-                normalized_text=mr.get("title", ""),
-                page_number=0,
-                risk_score=round(sev, 1),
-                risk_label=label,
-                risk_components={"llm": sev, "rule": 0.0, "benchmark": 0.0},
-                top_reasons=["Surfaced by adversarial reviewer"],
-                affected_interest="liability",
-                plain_explanation=mr.get("explanation", ""),
-            ))
-        analysis.clauses = clauses
-        # recompute doc score
-        scores = [cl.risk_score for cl in clauses]
-        doc_score, doc_label = scoring.document_score(scores)
-        analysis.overall_score = doc_score
-        analysis.overall_label = doc_label
-        analysis.top_risk_clause_ids = [
-            cl.id for cl in sorted(clauses, key=lambda x: x.risk_score, reverse=True)[:5]
-        ]
-    except Exception:
-        pass
-
-    # Benchmark compare — augment risk_components and refine scores
-    try:
-        for cl in analysis.clauses:
-            diff = benchmarks.best_match(analysis.contract_type, cl.type, cl.text)
-            if diff:
-                cl.benchmark_diff = diff
-                refreshed = scoring.final_score(
-                    cl.risk_components.get("llm", cl.risk_score),
-                    cl.risk_components.get("rule", 0.0),
-                    diff["divergence_score"],
-                )
-                cl.risk_score = refreshed["value"]
-                cl.risk_label = scoring.label_for(cl.risk_score)
-                cl.risk_components = refreshed["components"]
-        # recompute document score after benchmark refinement
-        scores = [cl.risk_score for cl in analysis.clauses]
-        doc_score, doc_label = scoring.document_score(scores)
-        analysis.overall_score = doc_score
-        analysis.overall_label = doc_label
-    except Exception:
-        pass
-
-    # Build RAG index for downstream chat
     try:
         rag.build_index(aid)
-    except Exception:
-        pass
+    except Exception as exc:
+        log.warning("RAG index build failed for %s: %s", aid, exc)
 
     analysis.stage = "complete"
-    emit("done", {"analysisId": aid, "overallScore": doc_score, "overallLabel": doc_label})
+    emit("done", {
+        "analysisId": aid,
+        "overallScore": analysis.overall_score,
+        "overallLabel": analysis.overall_label,
+    })
     return analysis
 
 

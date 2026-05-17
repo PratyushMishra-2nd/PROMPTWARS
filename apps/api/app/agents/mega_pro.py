@@ -29,6 +29,7 @@ SCHEMA = """{
       "text": "exact quote from document",
       "page_number": 1,
       "llm_severity": 0,           // 0-100
+      "confidence": 0.85,          // 0-1, how confident you are in classification + extraction
       "top_reasons": ["...", "...", "..."],
       "affected_interest": "financial | ip | privacy | employment | liability",
       "rationale": "1-2 sentence explanation"

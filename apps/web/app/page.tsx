@@ -1,4 +1,5 @@
 import Link from "next/link";
+import ServiceBadges from "@/components/ServiceBadges";
 
 export default function Home() {
   return (
@@ -27,6 +28,9 @@ export default function Home() {
           >
             How it works
           </a>
+        </div>
+        <div className="mt-8 flex justify-center">
+          <ServiceBadges />
         </div>
       </div>
 

@@ -24,44 +24,16 @@ export default function Chat({ analysisId, onCite }: { analysisId: string; onCit
     setBusy(true);
 
     try {
-      const res = await fetch(`${API}/api/v1/analyses/${analysisId}/chat/stream`, {
+      const res = await fetch(`${API}/api/v1/analyses/${analysisId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: userMsg.content, history: next.slice(0, -1) }),
       });
-      if (!res.ok || !res.body) {
-        const j = await res.json().catch(() => ({}));
-        throw new Error(j.detail || `HTTP ${res.status}`);
-      }
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buf = "";
-      let acc = "";
-      let finalCits: string[] = [];
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buf += decoder.decode(value, { stream: true });
-        const events = buf.split("\n\n");
-        buf = events.pop() || "";
-        for (const ev of events) {
-          let evName = "message";
-          let evData = "";
-          for (const ln of ev.split("\n")) {
-            if (ln.startsWith("event:")) evName = ln.slice(6).trim();
-            else if (ln.startsWith("data:")) evData += ln.slice(5).trim();
-          }
-          if (evName === "token") {
-            try { acc += JSON.parse(evData).t; } catch {}
-            setMsgs([...next, { role: "assistant", content: acc, streaming: true }]);
-          } else if (evName === "done") {
-            try { finalCits = JSON.parse(evData).citations || []; } catch {}
-          } else if (evName === "error") {
-            try { throw new Error(JSON.parse(evData).message); } catch (e: any) { throw new Error(evData); }
-          }
-        }
-      }
-      setMsgs([...next, { role: "assistant", content: acc, citations: finalCits }]);
+      const j = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(j.detail || `HTTP ${res.status}`);
+      const content = j.data?.content || "(empty response)";
+      const citations = j.data?.citations || [];
+      setMsgs([...next, { role: "assistant", content, citations }]);
     } catch (err: any) {
       setMsgs([...next, { role: "assistant", content: "Error: " + (err.message || "unknown") }]);
     } finally {

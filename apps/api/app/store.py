@@ -22,6 +22,7 @@ class Clause(BaseModel):
     real_world_scenario: str = ""
     suggested_redline: str = ""
     benchmark_diff: dict[str, Any] | None = None
+    confidence: float = 0.8  # extraction + classification confidence, 0-1
 
 
 class Chunk(BaseModel):

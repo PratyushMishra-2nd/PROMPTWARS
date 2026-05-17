@@ -1,9 +1,23 @@
+import logging
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from repo root if running from apps/api
+_here = Path(__file__).resolve()
+for parent in (_here.parent.parent.parent, _here.parent.parent, _here.parent):
+    env = parent / ".env"
+    if env.exists():
+        load_dotenv(env)
+        break
+else:
+    load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+if not GEMINI_API_KEY:
+    logging.getLogger("lexguard").warning(
+        "GEMINI_API_KEY not set — Gemini calls will fail. Set it in .env"
+    )
 GEMINI_PRO_MODEL = os.getenv("GEMINI_PRO_MODEL", "gemini-2.5-pro")
 GEMINI_FLASH_MODEL = os.getenv("GEMINI_FLASH_MODEL", "gemini-2.5-flash")
 GEMINI_EMBED_MODEL = os.getenv("GEMINI_EMBED_MODEL", "text-embedding-004")

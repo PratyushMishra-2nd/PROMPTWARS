@@ -51,11 +51,18 @@ def _parse_image(path: Path) -> ParsedDoc:
 
 
 def _ocr_fallback(path: Path, kind: str) -> ParsedDoc:
-    """Document AI fallback. Not wired in hackathon mode — raise clear error."""
+    """Document AI OCR fallback. Tries GCP Document AI if configured, else raises."""
+    from . import google_services as gcp
+
+    mime = "application/pdf" if kind == "pdf" else "image/png"
+    data = path.read_bytes()
+    text = gcp.docai_extract(data, mime_type=mime)
+    if text:
+        return _assemble([text], kind)
     raise NotImplementedError(
         "Document appears to be scanned/image-based. "
-        "Document AI OCR fallback is not enabled in hackathon mode. "
-        "Use a digital PDF or DOCX."
+        "Set GCP_PROJECT_ID + DOCAI_PROCESSOR_ID env vars to enable Document AI OCR. "
+        "Otherwise upload a digital PDF or DOCX."
     )
 
 

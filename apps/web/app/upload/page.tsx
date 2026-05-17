@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/Toast";
+import { useAuth, authedFetch } from "@/components/AuthProvider";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -30,6 +31,7 @@ const STAGE_ORDER = ["extracting", "scoring", "explaining", "done"] as const;
 export default function UploadPage() {
   const router = useRouter();
   const toast = useToast();
+  const { getToken } = useAuth();
   const [mode, setMode] = useState<"file" | "paste">("file");
   const [file, setFile] = useState<File | null>(null);
   const [pasted, setPasted] = useState("");
@@ -63,7 +65,7 @@ export default function UploadPage() {
     fd.append("perspective", perspective);
     if (contractType) fd.append("contractType", contractType);
 
-    const res = await fetch(`${API}/api/v1/analyze/stream`, { method: "POST", body: fd });
+    const res = await authedFetch(getToken, `${API}/api/v1/analyze/stream`, { method: "POST", body: fd });
     if (!res.ok || !res.body) {
       const j = await res.json().catch(() => ({}));
       throw new Error(j.detail || `HTTP ${res.status}`);

@@ -9,22 +9,29 @@ from fastapi.responses import Response
 from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 
-from . import config, store, pipeline, report_pdf, benchmarks, ratelimit
+from . import config, store, pipeline, report_pdf, benchmarks, ratelimit, compare as cmp
+from . import security as sec
+from . import google_services as gcp
+from . import auth as fauth
+from . import firestore_store as fs
 from .agents import flash_chat
 
 app = FastAPI(title="LexGuard API", version="0.1.0")
 
+app.add_middleware(sec.SecurityHeadersMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
+    max_age=600,
 )
 
 
 @app.on_event("startup")
 def _startup() -> None:
+    gcp.setup_cloud_logging()
     try:
         benchmarks.load_all()
     except Exception:
@@ -54,10 +61,12 @@ def contract_types() -> dict:
 
 
 async def _save_upload(file: UploadFile) -> tuple[Path, str]:
-    """Save upload to tempfile, return (path, sha256-hex)."""
-    suffix = Path(file.filename or "upload").suffix or ".bin"
+    """Validate + persist upload to a tempfile. Returns (path, sha256-hex)."""
+    sec.validate_upload(file)
+    suffix = Path(file.filename or "upload").suffix.lower() or ".bin"
+    data = await file.read()
+    sec.validate_size(data)
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        data = await file.read()
         tmp.write(data)
         sha = hashlib.sha256(data + (file.filename or "").encode()).hexdigest()
         return Path(tmp.name), sha
@@ -85,6 +94,7 @@ async def analyze(
     file: UploadFile = File(...),
     contractType: str | None = Form(None),
     perspective: str = Form("employee"),
+    user: dict | None = Depends(fauth.current_user),
 ) -> dict:
     ratelimit.limit_analyze(request)
     store.evict_stale()
@@ -113,14 +123,21 @@ async def analyze(
             pass
 
     _dedupe_save(sha, perspective, contractType, analysis.id)
+    if user:
+        fs.save_analysis(user["uid"], analysis.id, analysis.model_dump())
     return {"data": {"analysisId": analysis.id, "analysis": analysis.model_dump()}, "error": None}
 
 
 @app.post("/api/v1/analyze/text")
-def analyze_text(body: AnalyzeTextRequest, request: Request) -> dict:
+async def analyze_text(
+    body: AnalyzeTextRequest,
+    request: Request,
+    user: dict | None = Depends(fauth.current_user),
+) -> dict:
     """Skip PDF parse — analyze raw pasted text. Demo-friendly."""
     ratelimit.limit_analyze(request)
     store.evict_stale()
+    sec.validate_text_length(body.text)
     if len(body.text.strip()) < 100:
         raise HTTPException(status_code=400, detail="Text too short to analyze (min 100 chars)")
 
@@ -139,7 +156,27 @@ def analyze_text(body: AnalyzeTextRequest, request: Request) -> dict:
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Pipeline failed: {e}")
     _dedupe_save(sha, body.perspective, body.contractType, analysis.id)
+    if user:
+        fs.save_analysis(user["uid"], analysis.id, analysis.model_dump())
     return {"data": {"analysisId": analysis.id, "analysis": analysis.model_dump()}, "error": None}
+
+
+@app.get("/api/v1/me/analyses")
+def my_analyses(user: dict | None = Depends(fauth.current_user)) -> dict:
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    items = fs.list_user_analyses(user["uid"])
+    return {"data": {"analyses": items, "user": user}, "error": None}
+
+
+@app.delete("/api/v1/me/analyses/{analysis_id}")
+def delete_my_analysis(analysis_id: str, user: dict | None = Depends(fauth.current_user)) -> dict:
+    if not user:
+        raise HTTPException(status_code=401, detail="Sign in required")
+    fs.delete_user_analysis(user["uid"], analysis_id)
+    store.ANALYSES.pop(analysis_id, None)
+    store.EMBEDDINGS.pop(analysis_id, None)
+    return {"data": {"deleted": True}, "error": None}
 
 
 @app.post("/api/v1/analyze/stream")
@@ -147,12 +184,13 @@ async def analyze_stream(
     file: UploadFile = File(...),
     contractType: str | None = Form(None),
     perspective: str = Form("employee"),
+    user: dict | None = Depends(fauth.current_user),
 ):
     """SSE-streamed analysis. Emits stage events, then a `done` event with the analysisId."""
     import json as _json
     import asyncio
     store.evict_stale()
-    tmp_path = await _save_upload(file)
+    tmp_path, _sha = await _save_upload(file)
     fname = file.filename or "upload"
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -166,6 +204,8 @@ async def analyze_stream(
             analysis = await asyncio.to_thread(
                 pipeline.run_analysis, tmp_path, fname, contractType, perspective, on_stage
             )
+            if user:
+                fs.save_analysis(user["uid"], analysis.id, analysis.model_dump())
             await queue.put({"event": "result", "data": _json.dumps({"analysisId": analysis.id})})
         except Exception as e:
             await queue.put({"event": "error", "data": _json.dumps({"message": str(e)})})
@@ -194,6 +234,77 @@ def get_analysis(analysis_id: str) -> dict:
     if not a:
         raise HTTPException(status_code=404, detail="Analysis not found (may have been evicted on restart)")
     return {"data": a.model_dump(), "error": None}
+
+
+@app.get("/api/v1/clauses/{analysis_id}/{clause_id}/tts.mp3")
+def clause_tts(analysis_id: str, clause_id: str) -> Response:
+    """Synthesize a clause's plain-language explanation as MP3 (Google Cloud TTS)."""
+    a = store.ANALYSES.get(analysis_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    clause = next((c for c in a.clauses if c.id == clause_id), None)
+    if not clause:
+        raise HTTPException(status_code=404, detail="Clause not found")
+    text = clause.plain_explanation or clause.text
+    audio = gcp.tts_synthesize(text)
+    if audio is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Text-to-Speech disabled. Set ENABLE_TTS=1 + GCP_PROJECT_ID env vars.",
+        )
+    return Response(
+        content=audio,
+        media_type="audio/mpeg",
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "Content-Disposition": f'inline; filename="{clause_id}.mp3"',
+        },
+    )
+
+
+@app.get("/api/v1/services/status")
+def services_status() -> dict:
+    """Report which Google services are wired. Powers the UI badge row."""
+    return {"data": {
+        "gemini": bool(config.GEMINI_API_KEY),
+        "cloud_logging": gcp.ENABLE_CLOUD_LOGGING and bool(gcp.GCP_PROJECT_ID),
+        "tts": gcp.ENABLE_TTS,
+        "translation": gcp.ENABLE_TRANSLATION,
+        "document_ai": bool(gcp.GCP_PROJECT_ID and gcp.DOCAI_PROCESSOR_ID),
+        "firebase_auth": fauth.ENABLE_FIREBASE,
+        "firestore": fs.ENABLE_FIRESTORE,
+    }, "error": None}
+
+
+@app.get("/api/v1/analyses/{analysis_id}/export.json")
+def export_json(analysis_id: str) -> Response:
+    a = store.ANALYSES.get(analysis_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    import json as _json
+    body = _json.dumps(a.model_dump(), indent=2).encode()
+    return Response(content=body, media_type="application/json",
+                    headers={"Content-Disposition": f'attachment; filename="lexguard-{analysis_id}.json"'})
+
+
+@app.get("/api/v1/analyses/{analysis_id}/export.csv")
+def export_csv(analysis_id: str) -> Response:
+    a = store.ANALYSES.get(analysis_id)
+    if not a:
+        raise HTTPException(status_code=404, detail="Analysis not found")
+    import csv, io
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(["id", "type", "risk_label", "risk_score", "confidence", "page",
+                "affected_interest", "top_reasons", "text", "plain_explanation", "suggested_redline"])
+    for c in sorted(a.clauses, key=lambda x: x.risk_score, reverse=True):
+        w.writerow([
+            c.id, c.type, c.risk_label, c.risk_score, round(c.confidence, 2), c.page_number,
+            c.affected_interest, " | ".join(c.top_reasons), c.text,
+            c.plain_explanation, c.suggested_redline,
+        ])
+    return Response(content=buf.getvalue().encode("utf-8-sig"), media_type="text/csv",
+                    headers={"Content-Disposition": f'attachment; filename="lexguard-{analysis_id}.csv"'})
 
 
 @app.get("/api/v1/analyses/{analysis_id}/report.pdf")
@@ -289,6 +400,39 @@ def benchmark(analysis_id: str) -> dict:
                 "risk_score": c.risk_score,
             })
     return {"data": {"contract_type": a.contract_type, "diffs": diffs}, "error": None}
+
+
+@app.get("/api/v1/analyses")
+def list_analyses() -> dict:
+    """List in-memory analyses (id, filename, type, score, created_at). For version-compare picker."""
+    items = sorted(
+        [
+            {
+                "id": a.id,
+                "filename": a.filename,
+                "contract_type": a.contract_type,
+                "perspective": a.perspective,
+                "overall_score": a.overall_score,
+                "overall_label": a.overall_label,
+                "clause_count": len(a.clauses),
+                "created_at": a.created_at,
+            }
+            for a in store.ANALYSES.values()
+        ],
+        key=lambda x: x["created_at"],
+        reverse=True,
+    )
+    return {"data": {"analyses": items}, "error": None}
+
+
+@app.get("/api/v1/compare")
+def compare_versions(prev: str, new: str) -> dict:
+    if prev == new:
+        raise HTTPException(status_code=400, detail="prev and new are the same analysis")
+    result = cmp.compare(prev, new)
+    if result.get("error"):
+        raise HTTPException(status_code=404, detail=result["error"])
+    return {"data": result, "error": None}
 
 
 @app.delete("/api/v1/analyses/{analysis_id}")
