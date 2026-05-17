@@ -1,0 +1,27 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0a0a0a;
+  --foreground: #fafafa;
+}
+
+html, body { background: var(--background); color: var(--foreground); }
+
+/* radial background tint */
+body {
+  background-image:
+    radial-gradient(circle at 20% 0%, rgba(59,130,246,0.08), transparent 40%),
+    radial-gradient(circle at 80% 10%, rgba(168,85,247,0.06), transparent 35%);
+}
+
+/* slim scrollbars */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-thumb { background: #262626; border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: #404040; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* fade-in for content */
+@keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.fade-in { animation: fadein 200ms ease-out both; }

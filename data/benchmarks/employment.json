@@ -1,0 +1,11 @@
+{
+  "name": "Standard employment contract",
+  "clauses": [
+    { "clause_type": "non_compete", "standard_text": "Employee agrees not to engage in directly competitive employment within a 25-mile radius of Company offices for a period of 6 months following termination." },
+    { "clause_type": "ip_assignment", "standard_text": "Employee assigns to Company inventions created during employment, on Company time, or using Company resources. Inventions made on personal time without Company resources remain the property of Employee." },
+    { "clause_type": "termination_for_cause", "standard_text": "Company may terminate for cause defined as gross misconduct, breach of confidentiality, or material policy violation, with written notice and opportunity to cure where applicable." },
+    { "clause_type": "notice_period", "standard_text": "Either party may terminate this agreement upon two (2) weeks' written notice." },
+    { "clause_type": "severance", "standard_text": "Upon termination without cause, Employee shall receive two (2) weeks' severance per year of service." },
+    { "clause_type": "confidentiality", "standard_text": "Employee shall hold Company confidential information in strict confidence during and for 3 years after employment." }
+  ]
+}

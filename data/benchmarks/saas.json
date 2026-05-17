@@ -1,0 +1,10 @@
+{
+  "clauses": [
+    { "clause_type": "auto_renewal", "standard_text": "Subscription renews automatically for successive 1-year terms unless either party gives written notice of non-renewal at least 30 days before the end of the then-current term." },
+    { "clause_type": "cancellation_fee", "standard_text": "Customer may cancel at any time effective at the end of the current billing period. No cancellation fees apply." },
+    { "clause_type": "price_escalation", "standard_text": "Provider may increase fees on renewal with at least 60 days' notice; increases shall not exceed 7% per renewal term." },
+    { "clause_type": "service_level", "standard_text": "Provider guarantees 99.9% monthly uptime, with service credits of 10% of monthly fees for each 0.1% below the threshold." },
+    { "clause_type": "limitation_of_liability", "standard_text": "Provider's aggregate liability shall not exceed fees paid by Customer in the 12 months preceding the claim." },
+    { "clause_type": "data_retention", "standard_text": "Customer data shall be retained for 30 days after termination for export, after which it shall be deleted." }
+  ]
+}

@@ -1,0 +1,39 @@
+CLOUDWIDGET TERMS OF SERVICE
+
+Last updated: January 1, 2026. By accessing or using CloudWidget ("Service"), you ("Customer") agree to be bound by these Terms.
+
+1. SUBSCRIPTION AND AUTO-RENEWAL
+Subscriptions are billed annually in advance. Your subscription will automatically renew for successive 1-year terms at the then-current rate unless you provide written notice of non-renewal at least ninety (90) days before the end of the current term. No refunds are provided for any reason, including early cancellation, downtime, or dissatisfaction.
+
+2. PRICE CHANGES
+We reserve the right to increase fees at any time, in our sole discretion, including during your current subscription term, upon thirty (30) days' notice.
+
+3. CANCELLATION FEE
+If you cancel before the end of your current term, you remain liable for all fees for the remaining term plus a $500 administrative cancellation fee.
+
+4. LIMITATION OF LIABILITY
+IN NO EVENT SHALL CLOUDWIDGET'S TOTAL LIABILITY EXCEED ONE HUNDRED DOLLARS ($100) REGARDLESS OF THE CAUSE OF ACTION. WE DISCLAIM ALL WARRANTIES, EXPRESS OR IMPLIED. SERVICE IS PROVIDED "AS IS".
+
+5. INDEMNIFICATION
+Customer agrees to indemnify, defend, and hold CloudWidget harmless from any and all claims, damages, losses, and expenses (including attorneys' fees) arising from Customer's use of the Service, including claims brought by Customer's own users or employees.
+
+6. ARBITRATION AND CLASS ACTION WAIVER
+Any dispute shall be resolved by binding arbitration in our chosen jurisdiction. You waive your right to a jury trial. You agree to bring any claim only in your individual capacity and not as a plaintiff or class member in any purported class action, collective action, or representative proceeding.
+
+7. DATA RIGHTS
+You grant CloudWidget a worldwide, perpetual, irrevocable, royalty-free license to use, reproduce, modify, distribute, and create derivative works of any data, content, or feedback you submit, for any purpose including training machine learning models and selling derivative datasets to third parties.
+
+8. DATA RETENTION
+Upon termination, CloudWidget may retain your data indefinitely for any purpose, including ongoing analytics and model training. You waive any right to deletion.
+
+9. SUSPENSION
+We may suspend or terminate your account at any time, for any reason or no reason, without notice, and without refund.
+
+10. MODIFICATIONS
+We may modify these Terms at any time, with or without notice. Continued use after changes are posted constitutes acceptance.
+
+11. GOVERNING LAW
+These Terms are governed by the laws of the State of Delaware. Any action must be brought in Wilmington, Delaware.
+
+12. ASSIGNMENT
+We may assign these Terms at any time. You may not.

@@ -1,0 +1,9 @@
+{
+  "clauses": [
+    { "clause_type": "termination_without_cause", "standard_text": "Either party may terminate this lease with 30 days' written notice after the initial term." },
+    { "clause_type": "late_fee", "standard_text": "Rent paid more than 5 days late incurs a late fee of $50 or 5% of monthly rent, whichever is less." },
+    { "clause_type": "notice_period", "standard_text": "Landlord shall provide at least 24 hours' written notice before entering the premises, except in emergencies." },
+    { "clause_type": "cancellation_fee", "standard_text": "Early termination by Tenant requires payment of one (1) month's rent as liquidated damages." },
+    { "clause_type": "security_obligations", "standard_text": "Security deposit shall be returned within 30 days of move-out, less itemized deductions for damages beyond normal wear and tear." }
+  ]
+}

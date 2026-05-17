@@ -1,0 +1,31 @@
+[project]
+name = "lexguard-api"
+version = "0.1.0"
+description = "LexGuard FastAPI backend"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "python-multipart>=0.0.12",
+    "python-dotenv>=1.0",
+    "pydantic>=2.9",
+    "google-generativeai>=0.8",
+    "pdfplumber>=0.11",
+    "python-docx>=1.1",
+    "numpy>=1.26",
+    "rank-bm25>=0.2.2",
+    "sse-starlette>=2.1",
+    "pyyaml>=6.0",
+    "langdetect>=1.0.9",
+]
+
+[project.optional-dependencies]
+pdf = ["weasyprint>=63.0"]
+dev = ["pytest>=8.3", "httpx>=0.27", "ruff>=0.7"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

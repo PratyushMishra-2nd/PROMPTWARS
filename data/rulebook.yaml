@@ -1,0 +1,97 @@
+# Clause-type risk modifiers. Each matched keyword bumps severity additively (capped at +50).
+clause_rules:
+  non_compete:
+    - contains: "worldwide"
+      bump: 25
+      reason: "Worldwide geographic scope is unusually broad"
+    - contains: "24 months"
+      bump: 20
+      reason: "Duration exceeds 12 months"
+    - contains: "36 months"
+      bump: 30
+      reason: "Duration exceeds 24 months"
+    - contains: "any competitor"
+      bump: 10
+      reason: "'Any competitor' is overly broad"
+
+  ip_assignment:
+    - contains: "all inventions"
+      bump: 15
+      reason: "Sweeping IP transfer language"
+    - contains: "prior inventions"
+      bump: 10
+      reason: "Reaches back to pre-existing work"
+
+  arbitration:
+    - contains: "binding arbitration"
+      bump: 10
+      reason: "Binding arbitration waives jury trial"
+    - contains: "class action waiver"
+      bump: 20
+      reason: "Class action waiver removes collective remedy"
+
+  auto_renewal:
+    - contains: "automatically renew"
+      bump: 15
+      reason: "Auto-renews without explicit consent"
+    - contains: "60 days"
+      bump: 10
+      reason: "Long cancellation notice window"
+
+  limitation_of_liability:
+    - contains: "shall not exceed"
+      bump: 10
+      reason: "Caps recoverable damages"
+    - contains: "no event"
+      bump: 10
+      reason: "Broad exclusion of damages"
+
+  data_collection:
+    - contains: "third parties"
+      bump: 15
+      reason: "Shares data with third parties"
+    - contains: "biometric"
+      bump: 25
+      reason: "Collects biometric data"
+
+  data_retention:
+    - contains: "indefinitely"
+      bump: 25
+      reason: "Indefinite data retention"
+
+  termination_without_cause:
+    - contains: "at any time"
+      bump: 10
+      reason: "Other party may terminate at will"
+
+  late_fee:
+    - contains: "1.5%"
+      bump: 5
+      reason: "Compounding late fee"
+
+  cancellation_fee:
+    - contains: "remaining"
+      bump: 20
+      reason: "Forfeit of remaining term value"
+
+# Multiplier applied AFTER rule bump. Default 1.0.
+perspective_weights:
+  employee:
+    non_compete: 1.5
+    ip_assignment: 1.3
+    arbitration: 1.2
+    termination_without_cause: 1.4
+  freelancer:
+    ip_assignment: 1.6
+    payment_terms: 1.3
+    indemnification: 1.4
+  tenant:
+    late_fee: 1.3
+    termination_without_cause: 1.5
+    cancellation_fee: 1.3
+  customer:
+    auto_renewal: 1.4
+    cancellation_fee: 1.3
+    arbitration: 1.3
+    data_collection: 1.4
+    data_retention: 1.4

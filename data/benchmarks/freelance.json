@@ -1,0 +1,10 @@
+{
+  "name": "Standard freelance contract",
+  "clauses": [
+    { "clause_type": "ip_assignment", "standard_text": "Upon full payment, Contractor assigns the work product specifically created for this engagement to Client. Contractor retains rights to pre-existing tools, libraries, and general know-how." },
+    { "clause_type": "payment_terms", "standard_text": "Client shall pay invoices net 15 days. Late payments accrue interest at 1% per month. Contractor may suspend work after 30 days past due." },
+    { "clause_type": "indemnification", "standard_text": "Each party shall indemnify the other for third-party claims arising from its own gross negligence or willful misconduct, capped at fees paid under this agreement." },
+    { "clause_type": "termination_without_cause", "standard_text": "Either party may terminate this agreement with 10 days' written notice. Client shall pay for all work performed through the effective date of termination." },
+    { "clause_type": "limitation_of_liability", "standard_text": "Neither party's aggregate liability shall exceed the fees paid in the 12 months preceding the claim." }
+  ]
+}

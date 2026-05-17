@@ -1,0 +1,9 @@
+{
+  "clauses": [
+    { "clause_type": "data_collection", "standard_text": "We collect only the data necessary to provide the service: account information, usage analytics, and content you submit. We do not sell personal data to third parties." },
+    { "clause_type": "data_sharing", "standard_text": "We share personal data only with service providers under written confidentiality obligations, and with law enforcement when legally required." },
+    { "clause_type": "data_retention", "standard_text": "We retain account data while your account is active, and for 90 days after deletion for backup and legal compliance purposes." },
+    { "clause_type": "cookies_tracking", "standard_text": "We use essential cookies for functionality. Analytics cookies are opt-in. We do not engage in cross-site tracking." },
+    { "clause_type": "subprocessors", "standard_text": "A current list of subprocessors is available on our website. We provide at least 30 days' notice before adding new subprocessors." }
+  ]
+}

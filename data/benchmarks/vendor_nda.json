@@ -1,0 +1,8 @@
+{
+  "clauses": [
+    { "clause_type": "confidentiality", "standard_text": "Receiving Party shall hold Confidential Information in strict confidence for a period of 3 years from the date of disclosure and use it only for the Purpose stated in this agreement." },
+    { "clause_type": "ip_assignment", "standard_text": "No license to any intellectual property is granted under this agreement. All Confidential Information remains the property of the Disclosing Party." },
+    { "clause_type": "termination_without_cause", "standard_text": "Either party may terminate this agreement with 30 days' written notice. Confidentiality obligations survive termination for the stated period." },
+    { "clause_type": "governing_law", "standard_text": "This agreement shall be governed by the laws of the Disclosing Party's principal place of business." }
+  ]
+}

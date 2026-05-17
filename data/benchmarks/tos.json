@@ -1,0 +1,8 @@
+{
+  "clauses": [
+    { "clause_type": "arbitration", "standard_text": "Disputes shall be resolved by binding arbitration under the rules of a neutral arbitration body, with the right to opt out within 30 days of accepting these terms." },
+    { "clause_type": "governing_law", "standard_text": "These terms are governed by the laws of the user's state of residence, without regard to conflict-of-law principles." },
+    { "clause_type": "modification_rights", "standard_text": "Provider may update these terms with at least 30 days' notice for material changes. Continued use after the effective date constitutes acceptance." },
+    { "clause_type": "limitation_of_liability", "standard_text": "Provider's aggregate liability shall not exceed amounts paid by the user in the 12 months preceding the claim, or $100 if no payment was made." }
+  ]
+}

@@ -1,0 +1,42 @@
+# Cloud Run service config for backend.
+# Deploy:
+#   gcloud builds submit --tag gcr.io/PROJECT/lexguard-api --file Dockerfile.api .
+#   gcloud run deploy lexguard-api \
+#     --image gcr.io/PROJECT/lexguard-api \
+#     --platform managed --region asia-south1 \
+#     --allow-unauthenticated \
+#     --min-instances 0 --max-instances 2 \
+#     --cpu 1 --memory 1Gi \
+#     --set-env-vars CORS_ORIGIN=https://YOUR-FRONTEND.vercel.app \
+#     --set-secrets GEMINI_API_KEY=gemini-api-key:latest
+
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: lexguard-api
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/minScale: "0"
+        autoscaling.knative.dev/maxScale: "2"
+        run.googleapis.com/cpu-throttling: "true"
+    spec:
+      containerConcurrency: 8
+      timeoutSeconds: 120
+      containers:
+        - image: gcr.io/PROJECT_ID/lexguard-api:latest
+          ports:
+            - containerPort: 8080
+          resources:
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          env:
+            - name: CORS_ORIGIN
+              value: https://YOUR-FRONTEND.vercel.app
+            - name: GEMINI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: gemini-api-key
+                  key: latest

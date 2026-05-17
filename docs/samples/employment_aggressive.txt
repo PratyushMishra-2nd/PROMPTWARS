@@ -1,0 +1,53 @@
+EMPLOYMENT AGREEMENT
+
+This Employment Agreement ("Agreement") is entered into as of January 15, 2026, by and between Acme Corp ("Company") and the undersigned Employee.
+
+1. POSITION AND DUTIES
+Employee shall serve as Senior Software Engineer reporting to the Chief Technology Officer. Employee shall devote their full business time and best efforts to Company.
+
+2. COMPENSATION
+Annual base salary: $120,000 paid in bi-weekly installments. Employee is eligible for an annual discretionary bonus at the sole discretion of the Company. No equity is granted unless separately documented in a Stock Option Agreement.
+
+3. AT-WILL EMPLOYMENT
+Employment is at-will. The Company may terminate Employee at any time, with or without cause, with or without notice, for any reason or no reason whatsoever. Employee may resign at any time provided Employee gives 60 days' advance written notice; failure to give such notice will result in forfeiture of any accrued but unpaid bonus.
+
+4. NON-COMPETE
+For a period of twenty-four (24) months following termination of employment for any reason, Employee shall not, directly or indirectly, anywhere worldwide, engage in, own, manage, operate, consult for, or be employed by any business that competes with the Company or with any product the Company has developed, is developing, or may develop. "Competes" means engaged in any software business of any kind.
+
+5. NON-SOLICITATION
+For 36 months after termination, Employee shall not solicit any employee, contractor, customer, prospective customer, vendor, or partner of the Company for any purpose.
+
+6. INTELLECTUAL PROPERTY ASSIGNMENT
+Employee hereby assigns to the Company all right, title, and interest in and to all inventions, works of authorship, ideas, concepts, improvements, developments, discoveries, and trade secrets conceived, developed, or reduced to practice by Employee, whether alone or jointly with others, whether or not during working hours, whether or not using Company resources, including all prior inventions made before the date of this Agreement. Employee waives all moral rights.
+
+7. CONFIDENTIALITY
+Employee shall hold all Company information in strict confidence indefinitely.
+
+8. ARBITRATION
+Any dispute arising out of or relating to this Agreement, Employee's employment, or termination thereof shall be resolved exclusively by binding arbitration administered by the American Arbitration Association in Wilmington, Delaware. Employee waives the right to a jury trial and waives the right to bring or participate in any class action, collective action, or representative action.
+
+9. GOVERNING LAW
+This Agreement is governed by the laws of the State of Delaware without regard to conflict-of-law principles.
+
+10. ASSIGNMENT
+The Company may assign this Agreement at any time without Employee's consent. Employee may not assign this Agreement.
+
+11. MODIFICATION
+The Company may modify the terms of this Agreement, including compensation and duties, at any time upon written notice.
+
+12. SEVERANCE
+None. Employee shall not be entitled to any severance pay upon termination.
+
+13. INDEMNIFICATION
+Employee shall indemnify and hold harmless the Company from any claims arising from Employee's actions or omissions, including legal fees.
+
+14. ENTIRE AGREEMENT
+This Agreement constitutes the entire understanding between the parties.
+
+By signing below, Employee acknowledges they have read, understood, and agree to all terms.
+
+________________________
+Employee Signature
+
+________________________
+Date
