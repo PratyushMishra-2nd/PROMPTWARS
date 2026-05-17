@@ -7,7 +7,11 @@
   --foreground: #fafafa;
 }
 
+html { scroll-behavior: smooth; }
 html, body { background: var(--background); color: var(--foreground); }
+
+/* offset anchor targets so nav bar doesn't cover them */
+[id] { scroll-margin-top: 80px; }
 
 /* radial background tint */
 body {
