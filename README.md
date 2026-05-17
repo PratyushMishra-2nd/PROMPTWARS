@@ -59,14 +59,33 @@ Cloud Run (backend):
 gcloud builds submit --tag gcr.io/PROJECT/lexguard-api --file Dockerfile.api .
 gcloud run deploy lexguard-api --image gcr.io/PROJECT/lexguard-api \
   --region asia-south1 --allow-unauthenticated \
-  --set-env-vars CORS_ORIGIN=https://your-frontend.vercel.app \
+  --set-env-vars CORS_ORIGIN=https://your-frontend.vercel.app,ENABLE_FIREBASE=1,TRUST_PROXY=1 \
   --set-secrets GEMINI_API_KEY=gemini-api-key:latest
 ```
 
 Frontend → Vercel: connect repo, set root to `apps/web`, env `NEXT_PUBLIC_API_URL=<cloud-run-url>`.
 
+## Security
+
+Project hardened in May 2026 (see commit history). Key model:
+
+- **Auth**: Firebase ID token via `Authorization: Bearer <token>`. Set `ENABLE_FIREBASE=1` in prod — bad/expired tokens then return **401** (fail-closed). When unset, runs in legacy demo mode (anonymous allowed).
+- **Ownership**: every analysis carries `owner_uid`. All `/api/v1/analyses/{id}/*` routes (get, export.json/csv, report.pdf, chat, chat/stream, benchmark, delete, clause TTS, compare) 404 on cross-user access. List endpoint scopes to caller. Dedupe cache is per-user.
+- **Rate limit**: per-uid bucket when signed in, per-IP otherwise. Set `TRUST_PROXY=1` on Cloud Run / behind a known LB so `X-Forwarded-For` is read from the rightmost (trusted) hop; otherwise XFF is ignored to block spoofing.
+- **Prompt injection**: contract text is wrapped in `<contract_text>` / `<clauses>` delimiters and tag-stripped before insertion. System prompts mark those blocks untrusted and refuse to follow instructions inside them.
+- **Firestore rules**: see `firestore.rules`. Reads/deletes gated on `request.auth.uid == uid`; writes are admin-SDK only; default-deny everything else. Deploy with `firebase deploy --only firestore:rules`.
+- **Container**: `apps/api/Dockerfile` runs as non-root (`USER app`, UID 1001).
+- **CI**: least-privilege `permissions:`, `persist-credentials: false`, `pnpm install --frozen-lockfile --ignore-scripts` so an untrusted PR cannot pull arbitrary deps with install scripts.
+- **Errors**: pipeline/chat exceptions are logged server-side; clients see a generic message (no internal paths or key prefixes leaked).
+
+Env flags relevant to security:
+| Var | Default | Notes |
+|-----|---------|-------|
+| `ENABLE_FIREBASE` | `0` | `1` in prod. Required to enforce auth. |
+| `TRUST_PROXY` | `0` | `1` only when behind a trusted LB (Cloud Run, GCLB). |
+| `CORS_ORIGIN` | `http://localhost:3000` | Comma-separated. Never set to `*` with auth. |
+
 ## Limits (hackathon-by-design)
-- No auth (single demo session)
-- No DB — process restart wipes analyses
-- Scanned/image PDFs not yet supported (need Document AI fallback)
-- English / Hindi only (lang-detect rejects others)
+- In-memory store: process restart wipes the analysis cache (Firestore persists per-user history when `ENABLE_FIREBASE=1`).
+- Scanned/image PDFs handled via Document AI fallback when `GCP_PROJECT_ID` + `DOCAI_PROCESSOR_ID` are set.
+- English / Hindi only (lang-detect rejects others).
